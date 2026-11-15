@@ -9,36 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sync"
 )
 
 const MaxRequestBytes = 16 << 20
-
-var encodedWorkspace = struct {
-	sync.Mutex
-	buffers map[int][]byte
-}{buffers: make(map[int][]byte)}
-
-func encodedResult(stream wav.Stream) ([]byte, error) {
-	encoded, err := wav.Encode(stream)
-	if err != nil || len(encoded) < 65536 {
-		return encoded, err
-	}
-	size := 65536
-	for size < len(encoded) {
-		size *= 2
-	}
-	encodedWorkspace.Lock()
-	defer encodedWorkspace.Unlock()
-	buffer := encodedWorkspace.buffers[size]
-	if len(buffer) < len(encoded) {
-		buffer = make([]byte, size)
-		encodedWorkspace.buffers[size] = buffer
-	}
-	result := buffer[:len(encoded)]
-	copy(result, encoded)
-	return result, nil
-}
 
 type request struct {
 	Tracks []struct {
@@ -83,5 +56,7 @@ func Render(ctx context.Context, input []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return encodedResult(result)
+	// The encoded bytes are owned by the caller: HTTP handlers stream them
+	// and job workers persist them, so they must never alias shared storage.
+	return wav.Encode(result)
 }

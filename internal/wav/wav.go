@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sync"
 )
 
 type Stream struct {
@@ -14,32 +13,11 @@ type Stream struct {
 	Samples  []int16
 }
 
-var pcmWorkspace = struct {
-	sync.Mutex
-	buffers map[int][]int16
-}{buffers: make(map[int][]int16)}
-
+// decodeSamples returns a slice owned by the caller. Decoded samples are
+// never drawn from shared buffers: concurrent decodes and successive tracks
+// of one mix must not be able to overwrite each other's audio.
 func decodeSamples(pcm []byte) []int16 {
-	count := len(pcm) / 2
-	if count < 32768 {
-		samples := make([]int16, count)
-		for i := range samples {
-			samples[i] = int16(binary.LittleEndian.Uint16(pcm[i*2:]))
-		}
-		return samples
-	}
-	size := 32768
-	for size < count {
-		size *= 2
-	}
-	pcmWorkspace.Lock()
-	defer pcmWorkspace.Unlock()
-	buffer := pcmWorkspace.buffers[size]
-	if len(buffer) < count {
-		buffer = make([]int16, size)
-		pcmWorkspace.buffers[size] = buffer
-	}
-	samples := buffer[:count]
+	samples := make([]int16, len(pcm)/2)
 	for i := range samples {
 		samples[i] = int16(binary.LittleEndian.Uint16(pcm[i*2:]))
 	}

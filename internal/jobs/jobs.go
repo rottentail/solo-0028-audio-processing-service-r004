@@ -4,6 +4,7 @@ import (
 	"audio-processing-service/internal/mix"
 	"audio-processing-service/internal/profile"
 	"audio-processing-service/internal/wav"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -74,6 +75,27 @@ func pcmBuildAvailable(dir string, build *PCMBuild) bool {
 		contentSHA256(outputBytes) == build.OutputSHA256 && int64(len(outputBytes)) == build.OutputBytes
 }
 
+// pcmOutputMatchesInput reports whether the stored output is exactly what the
+// retained input renders to. Mixing is deterministic, so a completed job whose
+// stored output differs was published from media corrupted in flight and must
+// not be delivered; failing the job keeps its input available for an explicit
+// retry under the same job ID.
+func pcmOutputMatchesInput(dir string) bool {
+	input, err := os.ReadFile(filepath.Join(dir, "input"))
+	if err != nil {
+		return false
+	}
+	rendered, err := mix.Render(context.Background(), input)
+	if err != nil {
+		return false
+	}
+	output, err := os.ReadFile(filepath.Join(dir, "output"))
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(rendered, output)
+}
+
 type Manager struct {
 	mu           sync.Mutex
 	root, ffmpeg string
@@ -126,13 +148,24 @@ func Open(root, ffmpeg string, workers, capacity int) (*Manager, error) {
 				return nil, e
 			}
 		}
-		if job.State == "completed" && job.Operation == "mix-wav" && !pcmBuildAvailable(filepath.Join(root, job.ID), job.PCMBuild) {
-			job.State = "failed"
-			job.Error = "saved PCM media is unavailable"
-			job.Updated = time.Now().UTC()
-			if e = m.save(&job); e != nil {
-				cancel()
-				return nil, e
+		if job.State == "completed" && job.Operation == "mix-wav" {
+			dir := filepath.Join(root, job.ID)
+			if !pcmBuildAvailable(dir, job.PCMBuild) {
+				job.State = "failed"
+				job.Error = "saved PCM media is unavailable"
+				job.Updated = time.Now().UTC()
+				if e = m.save(&job); e != nil {
+					cancel()
+					return nil, e
+				}
+			} else if !pcmOutputMatchesInput(dir) {
+				job.State = "failed"
+				job.Error = "saved PCM media does not match the submitted mix"
+				job.Updated = time.Now().UTC()
+				if e = m.save(&job); e != nil {
+					cancel()
+					return nil, e
+				}
 			}
 		}
 		files, e := os.ReadDir(filepath.Join(root, job.ID))
