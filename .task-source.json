@@ -1,0 +1,28 @@
+{
+  "task_source_schema_version":1,
+  "cc_feedback_profile":"cc-feedback-2611",
+  "project_domain":"游戏、图形与多媒体",
+  "project_subdirection":"音视频处理",
+  "supported_task_types":["功能开发","Bugfix","代码重构","功能优化","依赖升级与迁移","质量保障","项目维护","技术讨论","问题排查与诊断","部署运维","泛Agent需求"],
+  "entities":[
+    {"id":"stream","label":"PCM stream","relations":["clip references stream frames"],"invariants":["samples align to whole frames","only 16-bit mono or stereo PCM"]},
+    {"id":"clip","label":"Frame interval","relations":["clip belongs to stream"],"invariants":["start is inclusive and end exclusive","interval lies within stream"]},
+    {"id":"mix-track","label":"WAV mix track","relations":["track contains a PCM stream and a frame offset"],"invariants":["tracks share sample rate and channel count","overlapping samples sum before saturation","gaps are silent"]},
+    {"id":"job","label":"Media job","relations":["job owns input and output","job retains processing settings"],"invariants":["completed requires final output","retry only after failure or cancellation"]},
+    {"id":"settings","label":"Video processing settings","relations":["settings belong to job"],"invariants":["clip start and duration are paired","canvas width and height are paired and even","settings stay fixed across attempts"]}
+  ],
+  "state_machines":[{"subject":"job","states":["queued","running","completed","failed","cancelled"],"transitions":["queued->running","queued->cancelled","running->completed","running->failed","running->cancelled","failed->queued","cancelled->queued"],"invariants":["cancelled output is never exposed","interrupted jobs fail on restart"]}],
+  "capability_families":[{"family":"媒体解析与编码","occupied_by":["PCM WAV","FFmpeg transforms"],"available":true},{"family":"音频变换","occupied_by":["frame clip","gain"],"available":true},{"family":"多轨混音","occupied_by":["frame-aligned PCM mix","synchronous and persistent render"],"available":true},{"family":"时间与画面变换","occupied_by":["video trim","aspect-preserving fit"],"available":true},{"family":"并发与锁","occupied_by":["bounded worker queue","cancellation"],"available":true},{"family":"恢复与回滚","occupied_by":["restart recovery","temporary output"],"available":true}],
+  "extension_seams":[{"id":"formats","anchor":"internal/wav","entry":"Decode and Encode","distinct_outcome":"additional media formats","mechanism":"format validation"},{"id":"mix-render","anchor":"internal/mix and internal/audio","entry":"Render and Mix","distinct_outcome":"additional frame-based composition workflows","mechanism":"frame alignment and output limits"},{"id":"job-presets","anchor":"internal/jobs run","entry":"operation selection","distinct_outcome":"new output profile","mechanism":"process lifecycle"},{"id":"video-settings","anchor":"internal/profile","entry":"Parse and VideoArgs","distinct_outcome":"additional temporal or spatial constraints","mechanism":"parameter persistence and encoding"}],
+  "tension_points":[
+    {"workflow_id":"inspect","description":"RIFF chunk boundaries versus actual body length","observable_failure":"truncated input reported as valid metadata"},
+    {"workflow_id":"clip","description":"sample indices versus interleaved frame boundaries","observable_failure":"channels become misaligned"},
+    {"workflow_id":"gain","description":"amplification versus signed sample range","observable_failure":"overflow wraps instead of saturating"},
+    {"workflow_id":"mix","description":"track offsets and gain summation versus frame alignment and output size","observable_failure":"channels become misaligned or overlapping samples wrap"},
+    {"workflow_id":"video-mp4","description":"completion publication versus cancellation and restart","observable_failure":"partial output exposed as complete"},
+    {"workflow_id":"audio-m4a","description":"audio stream selection versus inputs without audio","observable_failure":"success reported for missing audio"},
+    {"workflow_id":"thumbnail","description":"frame extraction versus files without video","observable_failure":"empty image returned"},
+    {"workflow_id":"job-control","description":"cancellation versus a process finishing and restart recovery","observable_failure":"cancelled work exposes output or interrupted work appears running forever"},
+    {"workflow_id":"video-profile","description":"clip boundaries and aspect-preserving canvas must remain consistent across retry and restart","observable_failure":"audio and video intervals diverge or frames are distorted"}
+  ]
+}

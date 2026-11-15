@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "name": "solo-0028-audio-processing-service",
+  "project_shape": "backend",
+  "modules": [
+    {"id":"entry","path":"cmd/audioserve","responsibility":"HTTP process lifecycle"},
+    {"id":"api","path":"internal/httpapi","responsibility":"HTTP validation and response mapping"},
+    {"id":"wav","path":"internal/wav","responsibility":"RIFF PCM decoding and encoding"},
+    {"id":"audio","path":"internal/audio","responsibility":"frame transformations"},
+    {"id":"jobs","path":"internal/jobs","responsibility":"durable asynchronous processing and worker lifecycle"},
+    {"id":"profile","path":"internal/profile","responsibility":"validate and construct video transformation parameters"}
+  ],
+  "complexity":{"mechanisms":["error_propagation","resource_lifecycle","validation_boundaries","state_transition","concurrency"]},
+  "workflows":[
+    {"id":"inspect","name":"Inspect WAV","entry":"POST /v1/inspect","steps":["bound and decode request","calculate and return metadata"],"success":"returns PCM metadata","failure":"rejects malformed or unsupported audio","verification":"offline HTTP smoke check","module_ids":["entry","api","wav"]},
+    {"id":"clip","name":"Clip WAV","entry":"POST /v1/clip","steps":["decode and validate frame range","slice frames and encode WAV"],"success":"returns selected frames","failure":"rejects invalid ranges and media","verification":"offline HTTP smoke check","module_ids":["entry","api","wav","audio"]},
+    {"id":"gain","name":"Adjust gain","entry":"POST /v1/gain","steps":["decode and validate multiplier","scale samples and encode WAV"],"success":"returns saturated PCM","failure":"rejects invalid multiplier and media","verification":"offline HTTP smoke check","module_ids":["entry","api","wav","audio"]},
+    {"id":"video-mp4","name":"Transcode video","entry":"POST /v1/jobs?operation=video-mp4","steps":["persist input and queue job","transcode and save result"],"success":"completed MP4 output survives restart","failure":"invalid media fails and can be retried","verification":"media HTTP smoke check","module_ids":["entry","api","jobs"]},
+    {"id":"audio-m4a","name":"Extract audio","entry":"POST /v1/jobs?operation=audio-m4a","steps":["persist input and queue job","encode audio and save result"],"success":"completed M4A output survives restart","failure":"missing or invalid audio fails","verification":"media HTTP smoke check","module_ids":["entry","api","jobs"]},
+    {"id":"thumbnail","name":"Extract frame","entry":"POST /v1/jobs?operation=thumbnail","steps":["persist input and queue job","decode frame and save image"],"success":"completed JPEG survives restart","failure":"missing video fails","verification":"media HTTP smoke check","module_ids":["entry","api","jobs"]},
+    {"id":"job-control","name":"Cancel and recover","entry":"DELETE /v1/jobs/{id}","steps":["cancel running process","recover interrupted records after restart"],"success":"cancelled and interrupted records remain durable","failure":"terminal jobs reject cancellation","verification":"job control HTTP smoke check","module_ids":["entry","api","jobs"]},
+    {"id":"video-profile","name":"Trim and fit video","entry":"POST /v1/jobs?operation=video-mp4&start=0.2&duration=0.5&width=128&height=64","steps":["validate and persist processing parameters","trim and fit frames in a bounded canvas","retain parameters through retry and restart"],"success":"video and audio cover the selected duration and output dimensions","failure":"invalid parameter pairs or unavailable interval fail","verification":"profiled media HTTP smoke check decodes output","module_ids":["entry","api","profile","jobs"]}
+  ]
+}

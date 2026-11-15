@@ -1,0 +1,17 @@
+{
+  "language":"Go",
+  "project_shape":"backend",
+  "source_extensions":[".go"],
+  "build_command":"go build ./...",
+  "testing":"deferred",
+  "workflow_checks":[
+    {"workflow_id":"inspect","command":"python3 scripts/smoke.py inspect"},
+    {"workflow_id":"clip","command":"python3 scripts/smoke.py clip"},
+    {"workflow_id":"gain","command":"python3 scripts/smoke.py gain"},
+    {"workflow_id":"video-mp4","command":"python3 scripts/media-smoke.py video-mp4"},
+    {"workflow_id":"audio-m4a","command":"python3 scripts/media-smoke.py audio-m4a"},
+    {"workflow_id":"thumbnail","command":"python3 scripts/media-smoke.py thumbnail"},
+    {"workflow_id":"job-control","command":"python3 scripts/control-smoke.py"},
+    {"workflow_id":"video-profile","command":"python3 scripts/media-smoke.py video-profile"}
+  ]
+}
